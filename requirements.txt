@@ -1,0 +1,16 @@
+# MetaTrader 5 Bridge
+MetaTrader5==5.0.45
+pandas>=2.0.0
+requests>=2.31.0
+matplotlib>=3.8.0
+
+# API & Sync
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-dotenv>=1.0.0
+supabase>=2.3.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Optional: Technical Analysis
+# pandas-ta>=0.3.14b0
