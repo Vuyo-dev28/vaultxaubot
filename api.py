@@ -164,7 +164,7 @@ def start_bot():
             )
             
             # Initialize the broadcast channel once
-            log_channel = supabase.channel(f"bot_logs:{user_id}")
+            log_channel = supabase.channel(f"bot_logs:{USER_ID}")
             log_channel.subscribe()
 
             # Helper to stream logs to console and broadcast to cloud
