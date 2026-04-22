@@ -41,22 +41,22 @@ ANALYSIS_TXT = BOT_DIR / "analysis_results.txt"
 _bot_process: Optional[subprocess.Popen] = None
 _bot_lock = threading.Lock()
 
-# Supabase Sync
+# Supabase Sync Settings
 from supabase import create_client, Client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 # Use Service Role Key if available (bypasses RLS), fallback to Anon Key
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+USER_ID = os.getenv("USER_ID")
 
 def sync_with_supabase():
     """Background loop to check cloud status and start/stop bot."""
     global _bot_process
-    user_id = os.getenv("USER_ID")
-    if not user_id:
+    if not USER_ID:
         print("[SYNC ERROR] USER_ID not set in .env. Skipping sync.")
         return
         
-    print(f"[SYNC] Started monitor for User: {user_id}")
+    print(f"[SYNC] Started monitor for User: {USER_ID}")
     while True:
         try:
             res = supabase.table("bot_config").select("*").eq("user_id", user_id).single().execute()
@@ -159,7 +159,33 @@ def start_bot():
                 cwd=str(BOT_DIR),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
             )
+            
+            # Initialize the broadcast channel once
+            log_channel = supabase.channel(f"bot_logs:{user_id}")
+            log_channel.subscribe()
+
+            # Helper to stream logs to console and broadcast to cloud
+            def stream_logs(pipe):
+                for line in iter(pipe.readline, ''):
+                    clean_line = line.strip()
+                    if not clean_line: continue
+                    print(f"🤖 {clean_line}")
+                    
+                    # Broadcast to Supabase Realtime
+                    try:
+                        log_channel.send_broadcast(
+                            "new_log",
+                            {"message": clean_line, "timestamp": datetime.now().isoformat()}
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Broadcast failed: {e}")
+                pipe.close()
+
+            threading.Thread(target=stream_logs, args=(_bot_process.stdout,), daemon=True).start()
+            
             return {"message": "Bot started", "pid": _bot_process.pid}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -232,3 +258,15 @@ def get_credentials():
         "path": os.getenv("MT5_PATH", ""),
         "has_password": bool(os.getenv("MT5_PASSWORD", "")),
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    import argparse
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8888)
+    args = parser.parse_args()
+
+    print(f"\n🚀 XauBot API Server Starting on port {args.port}...")
+    print("Keep this window open to stay connected to your Cloud Dashboard.\n")
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
