@@ -9,7 +9,7 @@ Strategy:
 """
 
 import time
-import MetaTrader5 as mt5
+# import MetaTrader5 as mt5  // removed for production due to not having to inistall MT5 on the server
 from datetime import datetime, timezone
 import pandas as pd
 import requests
