@@ -71,7 +71,6 @@ SYMBOLS = [
     # "Volatility 50 Index",
 ]
 
-TIMEFRAME = mt5.TIMEFRAME_M15   # 🔥 Better than M1 for consistency
 MAGIC_NUMBER = 234000
 
 RSI_PERIOD = 14
@@ -97,6 +96,18 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
 ENABLE_TELEGRAM = True
 
 LOG_FILE = "trades_log.csv"
+
+def get_timeframe_setting() -> str:
+    return os.getenv("TRADING_TIMEFRAME", "5m").lower()
+
+def get_mt5_timeframe():
+    timeframe_setting = get_timeframe_setting()
+    tf_map = {
+        "1m": mt5.TIMEFRAME_M1,
+        "5m": mt5.TIMEFRAME_M5,
+        "15m": mt5.TIMEFRAME_M15,
+    }
+    return tf_map.get(timeframe_setting, mt5.TIMEFRAME_M5)
 
 # ======================================================================
 # LOGGING
@@ -323,7 +334,7 @@ def send_telegram_chart(symbol, entry_price, timeframe, df):
             chat_id = f"-{chat_id}"
             
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        caption = f"📊 *Setup for {symbol}*\n💰 *Entry:* {entry_price:.2f}\n⏱ *Timeframe:* M1"
+        caption = f"📊 *Setup for {symbol}*\n💰 *Entry:* {entry_price:.2f}\n⏱ *Timeframe:* {str(timeframe).upper()}"
         
         with open(filename, 'rb') as photo:
             files = {'photo': photo}
@@ -413,7 +424,7 @@ def send_telegram_chart(symbol, entry_price, timeframe, df):
             chat_id = f"-{chat_id}"
             
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        caption = f"📊 *Setup for {symbol}*\n💰 *Entry:* {entry_price:.2f}\n⏱ *Timeframe:* M1"
+        caption = f"📊 *Setup for {symbol}*\n💰 *Entry:* {entry_price:.2f}\n⏱ *Timeframe:* {str(timeframe).upper()}"
         
         with open(filename, 'rb') as photo:
             files = {'photo': photo}
@@ -514,7 +525,7 @@ def initialize_mt5():
 # ======================================================================
 
 def get_rates(symbol):
-    rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, 300)
+    rates = mt5.copy_rates_from_pos(symbol, get_mt5_timeframe(), 0, 300)
     if rates is None:
         return None
     df = pd.DataFrame(rates)
@@ -568,10 +579,33 @@ def get_signals(df, symbol):
     pullback_sell = ema_dist >= -0.0009
 
     # =========================
-    # 🎯 RSI POINT TRIGGERS (SNIPER)
+    # 🎯 RSI POINT TRIGGERS (SNIPER) - TIMEFRAME-SPECIFIC
     # =========================
-    buy_rsi_trigger = prev_rsi < 35 and rsi >= 35
-    sell_rsi_trigger = prev_rsi > 54 and rsi <= 54
+    # Get timeframe from environment (default to 5-minute)
+    timeframe = os.getenv("TRADING_TIMEFRAME", "5m").lower()
+    
+    # RSI thresholds by timeframe
+    rsi_config = {
+        "1m":  {"buy_lower": 20, "buy_upper": 35, "sell_lower": 55, "sell_upper": 65},
+        "5m":  {"buy_lower": 30, "buy_upper": 40, "sell_lower": 60, "sell_upper": 70},
+        "15m": {"buy_lower": 40, "buy_upper": 50, "sell_lower": 50, "sell_upper": 60},
+    }
+    
+    config = rsi_config.get(timeframe, rsi_config["5m"])  # Default to 5m if unknown
+    
+    # Trigger when RSI crosses back through the actionable threshold.
+    # Previous logic required a single-candle jump from one edge of the zone
+    # to the other, which almost never happens and starves entries.
+    buy_rsi_trigger = (
+        prev_rsi < config["buy_upper"]
+        and rsi >= config["buy_upper"]
+        and prev_rsi >= config["buy_lower"]
+    )
+    sell_rsi_trigger = (
+        prev_rsi > config["sell_lower"]
+        and rsi <= config["sell_lower"]
+        and prev_rsi <= config["sell_upper"]
+    )
 
     # =========================
     # FINAL SIGNALS
@@ -587,9 +621,11 @@ def get_signals(df, symbol):
 
     # Show RSI proximity to trigger
     if uptrend:
-        rsi_status = f"{rsi:.1f} ({'🔥' if buy_rsi_trigger else f'→45:{45-rsi:.1f}'})"
+        rsi_target = config["buy_upper"]
+        rsi_status = f"{rsi:.1f} ({'🔥' if buy_rsi_trigger else f'→{rsi_target}:{rsi_target-rsi:.1f}'})"
     elif downtrend:
-        rsi_status = f"{rsi:.1f} ({'🔥' if sell_rsi_trigger else f'→55:{rsi-55:.1f}'})"
+        rsi_target = config["sell_lower"]
+        rsi_status = f"{rsi:.1f} ({'🔥' if sell_rsi_trigger else f'→{rsi_target}:{rsi-rsi_target:.1f}'})"
     else:
         rsi_status = f"{rsi:.1f}"
 
@@ -828,7 +864,9 @@ def run_bot():
     if not initialize_mt5():
         return
 
+    active_timeframe = get_timeframe_setting()
     print("[INFO] Trend Pullback Bot Running")
+    print(f"[INFO] Active trading timeframe setting: {active_timeframe} (MT5 candles)")
     print(f"[INFO] Scanning: {', '.join(SYMBOLS)}")
     
     # Telegram Startup Test
@@ -868,7 +906,8 @@ def run_bot():
 
                 # Professional scrolling logs
                 now = datetime.now().strftime("%H:%M:%S")
-                log_msg = f"[{now}] {symbol} | Price:{sig['price']:.2f} | {sig['reason']}"
+                current_tf = get_timeframe_setting()
+                log_msg = f"[{now}] {symbol} | TF:{current_tf} | Price:{sig['price']:.2f} | {sig['reason']}"
                 print(log_msg, flush=True)
 
                 if len(positions) >= MAX_POSITIONS:
@@ -889,7 +928,7 @@ def run_bot():
                     lot = get_lot(symbol, sl_points)
                     
                     if place_order(symbol, mt5.ORDER_TYPE_BUY, lot, sl, tp):
-                        send_telegram_chart(symbol, sig["price"], mt5.TIMEFRAME_M1, df)
+                        send_telegram_chart(symbol, sig["price"], get_timeframe_setting(), df)
 
                 elif sig["sell"]:
                     sl, tp = get_sl_tp(df, sig["price"], "sell", symbol)
@@ -898,7 +937,7 @@ def run_bot():
                     lot = get_lot(symbol, sl_points)
                     
                     if place_order(symbol, mt5.ORDER_TYPE_SELL, lot, sl, tp):
-                        send_telegram_chart(symbol, sig["price"], mt5.TIMEFRAME_M1, df)
+                        send_telegram_chart(symbol, sig["price"], get_timeframe_setting(), df)
 
             time.sleep(0.5)
 
