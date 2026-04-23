@@ -1,5 +1,5 @@
 # MetaTrader 5 Bridge (NOTE: ONLY WORKS ON WINDOWS)
-MetaTrader5==5.0.45
+# MetaTrader5==5.0.45
 pandas>=2.0.0
 requests>=2.31.0
 matplotlib>=3.8.0
