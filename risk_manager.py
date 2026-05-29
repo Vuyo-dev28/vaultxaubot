@@ -25,8 +25,10 @@ def get_valid_lot(symbol, desired_lot):
     # Final clamp to ensure it's still within range after rounding
     lot = max(min_lot, min(lot, max_lot))
 
-    # Special override for Gold (XAUUSD) as requested
-    if symbol == "XAUUSD":
+    # Special override for Gold (XAUUSD) as requested (bypassed in FLIP_MODE)
+    import os
+    flip_mode_active = os.getenv("FLIP_MODE", "true").lower() == "true"
+    if symbol == "XAUUSD" and not flip_mode_active:
         lot = min(lot, 0.01)
 
     return lot

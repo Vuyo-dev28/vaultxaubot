@@ -297,7 +297,7 @@ def _start_bot_process(user_id: str = None, timeframe: str = None):
                         clean_line = line.strip()
                         if not clean_line: 
                             continue
-                        print(f"🤖 {clean_line}")
+                        print(f"[BOT] {clean_line}")
                         log_count += 1
                         
                         # Add to queue for frontend
@@ -405,6 +405,6 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8888)
     args = parser.parse_args()
 
-    print(f"\n🚀 XauBot API Server Starting on port {args.port}...")
+    print(f"\n[STARTING] XauBot API Server Starting on port {args.port}...")
     print("Keep this window open to stay connected to your Cloud Dashboard.\n")
     uvicorn.run(app, host="0.0.0.0", port=args.port)
